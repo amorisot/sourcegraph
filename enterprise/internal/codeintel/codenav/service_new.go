@@ -26,7 +26,7 @@ func (s *Service) NewGetDefinitions(
 		s.operations.getDefinitions, // operation
 		"definitions",               // tableName
 		false,                       // includeReferencingIndexes
-		s.lsifstore.ExtractDefinitionLocationsFromPosition,
+		LocationExtractorFunc(s.lsifstore.ExtractDefinitionLocationsFromPosition),
 	)
 
 	return locations, err
@@ -44,7 +44,7 @@ func (s *Service) NewGetReferences(
 		s.operations.getReferences, // operation
 		"references",               // tableName
 		true,                       // includeReferencingIndexes
-		s.lsifstore.ExtractReferenceLocationsFromPosition,
+		LocationExtractorFunc(s.lsifstore.ExtractReferenceLocationsFromPosition),
 	)
 }
 
@@ -60,7 +60,7 @@ func (s *Service) NewGetImplementations(
 		s.operations.getImplementations, // operation
 		"implementations",               // tableName
 		true,                            // includeReferencingIndexes
-		s.lsifstore.ExtractImplementationLocationsFromPosition,
+		LocationExtractorFunc(s.lsifstore.ExtractImplementationLocationsFromPosition),
 	)
 }
 
@@ -76,14 +76,23 @@ func (s *Service) NewGetPrototypes(
 		s.operations.getPrototypes, // operation
 		"definitions",              // N.B.: TODO
 		false,                      // includeReferencingIndexes
-		s.lsifstore.ExtractPrototypeLocationsFromPosition,
+		LocationExtractorFunc(s.lsifstore.ExtractPrototypeLocationsFromPosition),
 	)
 }
 
 //
 //
 
-type extractPrototypeLocationsFromPositionFunc func(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error)
+type LocationExtractor interface {
+	// TODO - document
+	Extract(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error)
+}
+
+type LocationExtractorFunc func(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error)
+
+func (f LocationExtractorFunc) Extract(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error) {
+	return f(ctx, locationKey)
+}
 
 func (s *Service) gatherLocations(
 	ctx context.Context,
@@ -93,7 +102,7 @@ func (s *Service) gatherLocations(
 	operation *observation.Operation,
 	tableName string,
 	includeReferencingIndexes bool,
-	extractPrototypeLocationsFromPosition extractPrototypeLocationsFromPositionFunc,
+	extractor LocationExtractor,
 ) (allLocations []shared.UploadLocation, _ Cursor, err error) {
 	// TODO - update, add trace logs below
 	ctx, _, endObservation := observeResolver(ctx, &err, operation, serviceObserverThreshold, observation.Args{Attrs: []attribute.KeyValue{
@@ -156,7 +165,7 @@ outer:
 				requestState,
 				cursor,
 				tableName,
-				extractPrototypeLocationsFromPosition,
+				extractor,
 				includeReferencingIndexes,
 				visibleUploads,
 				args.Limit-len(allLocations), // remaining space in the page
@@ -221,7 +230,7 @@ type gatherLocationsFunc func(
 	requestState RequestState,
 	cursor Cursor,
 	tableName string,
-	getLocationsFromPosition extractPrototypeLocationsFromPositionFunc,
+	extractor LocationExtractor,
 	includeReferencingIndexes bool,
 	visibleUploads []visibleUpload,
 	limit int,
@@ -235,7 +244,7 @@ func (s *Service) gatherLocalLocations(
 	requestState RequestState,
 	cursor Cursor,
 	_ string,
-	extractPrototypeLocationsFromPosition extractPrototypeLocationsFromPositionFunc,
+	extractor LocationExtractor,
 	_ bool,
 	visibleUploads []visibleUpload,
 	limit int,
@@ -271,7 +280,7 @@ func (s *Service) gatherLocalLocations(
 		// Gather response locations directly from the document containing the
 		// target position. This may also return relevant symbol names that we
 		// collect for a remote search.
-		locations, symbolNames, err := extractPrototypeLocationsFromPosition(
+		locations, symbolNames, err := extractor.Extract(
 			ctx,
 			lsifstore.LocationKey{
 				UploadID:  visibleUpload.Upload.ID,
@@ -287,9 +296,9 @@ func (s *Service) gatherLocalLocations(
 		// remaining space in the page
 		pageLimit := limit - len(allLocations)
 
-		// do pagination on this level instead of in lsifstore; we bring back the
-		// raw SCIP document payload anyway, so there's no reason to hide behind
-		// the API that it's doing that amount of work.
+		// Perform pagination on this level instead of in lsifstore; we bring back the
+		// raw SCIP document payload anyway, so there's no reason to hide behind the API
+		// that it's doing that amount of work.
 		totalCount := len(locations)
 		locations = pageSlice(locations, pageLimit, cursor.LocalLocationOffset)
 
@@ -344,7 +353,7 @@ func (s *Service) gatherRemoteLocations(
 	requestState RequestState,
 	cursor Cursor,
 	tableName string,
-	_ extractPrototypeLocationsFromPositionFunc,
+	_ LocationExtractor,
 	includeReferencingIndexes bool,
 	_ []visibleUpload,
 	limit int,
@@ -411,7 +420,7 @@ func (s *Service) gatherRemoteLocations(
 	if cursor.RemoteLocationOffset >= totalCount {
 		// We've consumed the locations for this set of uploads. Reset this slice value in the
 		// cursor so that the next call to this function will query the new set of uploads to
-		// search in while resolving the next page.We also ensure we start on a zero offset
+		// search in while resolving the next page. We also ensure we start on a zero offset
 		// for the next page of results for a fresh set of uploads (if any).
 		cursor.UploadIDs = nil
 		cursor.RemoteLocationOffset = 0
