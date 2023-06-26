@@ -8,7 +8,6 @@ import (
 	"github.com/sourcegraph/scip/bindings/go/scip"
 	"google.golang.org/protobuf/proto"
 
-	codenavshared "github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/codenav/shared"
 	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/shared/ranges"
 	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/uploads/shared"
 	"github.com/sourcegraph/sourcegraph/internal/database/basestore"
@@ -162,7 +161,7 @@ func (s *store) scanDeduplicatedQualifiedMonikerLocations(rows *sql.Rows, queryE
 		}
 	}
 	for i := range values {
-		values[i].Locations = codenavshared.Deduplicate(values[i].Locations, locationDataKey)
+		values[i].Locations = deduplicate(values[i].Locations, locationDataKey)
 	}
 
 	return values, nil

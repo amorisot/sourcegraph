@@ -452,11 +452,28 @@ func (s *store) extractLocationsFromPosition(
 		}
 	}
 
-	return deduplicateLocations(locations), shared.Deduplicate(symbols, func(s string) string { return s }), nil
+	return deduplicateLocations(locations), deduplicate(symbols, func(s string) string { return s }), nil
+}
+
+func deduplicate[T any](locations []T, keyFn func(T) string) []T {
+	seen := map[string]struct{}{}
+
+	filtered := locations[:0]
+	for _, l := range locations {
+		k := keyFn(l)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+
+		seen[k] = struct{}{}
+		filtered = append(filtered, l)
+	}
+
+	return filtered
 }
 
 func deduplicateLocations(locations []shared.Location) []shared.Location {
-	return shared.Deduplicate(locations, locationKey)
+	return deduplicate(locations, locationKey)
 }
 
 func locationKey(l shared.Location) string {
