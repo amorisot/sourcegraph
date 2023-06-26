@@ -369,20 +369,20 @@ func monikersToString(vs []precise.MonikerData) string {
 //
 //
 
-func (s *store) ExtractDefinitionLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error) {
-	return s.extractLocationsFromPosition(ctx, extractDefinitionRanges, symbolExtractDefault, s.operations.getDefinitionLocations, bundleID, path, line, character, limit, offset)
+func (s *store) ExtractDefinitionLocationsFromPosition(ctx context.Context, locationKey LocationKey) (_ []shared.Location, _ []string, err error) {
+	return s.extractLocationsFromPosition(ctx, extractDefinitionRanges, symbolExtractDefault, s.operations.getDefinitionLocations, locationKey)
 }
 
-func (s *store) ExtractReferenceLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error) {
-	return s.extractLocationsFromPosition(ctx, extractReferenceRanges, symbolExtractDefault, s.operations.getReferenceLocations, bundleID, path, line, character, limit, offset)
+func (s *store) ExtractReferenceLocationsFromPosition(ctx context.Context, locationKey LocationKey) (_ []shared.Location, _ []string, err error) {
+	return s.extractLocationsFromPosition(ctx, extractReferenceRanges, symbolExtractDefault, s.operations.getReferenceLocations, locationKey)
 }
 
-func (s *store) ExtractImplementationLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error) {
-	return s.extractLocationsFromPosition(ctx, extractImplementationRanges, symbolExtractDefault, s.operations.getImplementationLocations, bundleID, path, line, character, limit, offset)
+func (s *store) ExtractImplementationLocationsFromPosition(ctx context.Context, locationKey LocationKey) (_ []shared.Location, _ []string, err error) {
+	return s.extractLocationsFromPosition(ctx, extractImplementationRanges, symbolExtractDefault, s.operations.getImplementationLocations, locationKey)
 }
 
-func (s *store) ExtractPrototypeLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error) {
-	return s.extractLocationsFromPosition(ctx, extractPrototypesRanges, symbolExtractPrototype, s.operations.getPrototypesLocations, bundleID, path, line, character, limit, offset)
+func (s *store) ExtractPrototypeLocationsFromPosition(ctx context.Context, locationKey LocationKey) (_ []shared.Location, _ []string, err error) {
+	return s.extractLocationsFromPosition(ctx, extractPrototypesRanges, symbolExtractPrototype, s.operations.getPrototypesLocations, locationKey)
 }
 
 func symbolExtractDefault(document *scip.Document, symbolName string) (symbols []string) {
@@ -417,37 +417,34 @@ func (s *store) extractLocationsFromPosition(
 	extractRanges func(document *scip.Document, occurrence *scip.Occurrence) []*scip.Range,
 	extractSymbolNames func(document *scip.Document, symbolName string) []string,
 	operation *observation.Operation,
-	bundleID int,
-	path string,
-	line, character int,
-	limit, offset int,
-) (_ []shared.Location, _ int, _ []string, err error) {
+	locationKey LocationKey,
+) (_ []shared.Location, _ []string, err error) {
 	ctx, trace, endObservation := operation.With(ctx, &err, observation.Args{Attrs: []attribute.KeyValue{
-		attribute.Int("bundleID", bundleID),
-		attribute.String("path", path),
-		attribute.Int("line", line),
-		attribute.Int("character", character),
+		attribute.Int("bundleID", locationKey.UploadID),
+		attribute.String("path", locationKey.Path),
+		attribute.Int("line", locationKey.Line),
+		attribute.Int("character", locationKey.Character),
 	}})
 	defer endObservation(1, observation.Args{})
 
 	documentData, exists, err := s.scanFirstDocumentData(s.db.Query(ctx, sqlf.Sprintf(
 		locationsDocumentQuery,
-		bundleID,
-		path,
+		locationKey.UploadID,
+		locationKey.Path,
 	)))
 	if err != nil || !exists {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
 
 	trace.AddEvent("SCIPData", attribute.Int("numOccurrences", len(documentData.SCIPData.Occurrences)))
-	occurrences := scip.FindOccurrences(documentData.SCIPData.Occurrences, int32(line), int32(character))
+	occurrences := scip.FindOccurrences(documentData.SCIPData.Occurrences, int32(locationKey.Line), int32(locationKey.Character))
 	trace.AddEvent("FindOccurences", attribute.Int("numIntersectingOccurrences", len(occurrences)))
 
 	var locations []shared.Location
 	var symbols []string
 	for _, occurrence := range occurrences {
 		if ranges := extractRanges(documentData.SCIPData, occurrence); len(ranges) != 0 {
-			locations = append(locations, convertSCIPRangesToLocations(ranges, bundleID, path)...)
+			locations = append(locations, convertSCIPRangesToLocations(ranges, locationKey.UploadID, locationKey.Path)...)
 		}
 
 		if occurrence.Symbol != "" && !scip.IsLocalSymbol(occurrence.Symbol) {
@@ -455,8 +452,7 @@ func (s *store) extractLocationsFromPosition(
 		}
 	}
 
-	locations = deduplicateLocations(locations)
-	return pageSlice(locations, limit, offset), len(locations), shared.Deduplicate(symbols, func(s string) string { return s }), nil
+	return deduplicateLocations(locations), shared.Deduplicate(symbols, func(s string) string { return s }), nil
 }
 
 func deduplicateLocations(locations []shared.Location) []shared.Location {
@@ -472,20 +468,6 @@ func locationKey(l shared.Location) string {
 		l.Range.End.Line,
 		l.Range.End.Character,
 	)
-}
-
-func pageSlice[T any](s []T, limit, offset int) []T {
-	if offset < len(s) {
-		s = s[offset:]
-	} else {
-		s = []T{}
-	}
-
-	if len(s) > limit {
-		s = s[:limit]
-	}
-
-	return s
 }
 
 //

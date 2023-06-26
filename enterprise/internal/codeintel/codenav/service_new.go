@@ -8,6 +8,7 @@ import (
 	"github.com/sourcegraph/scip/bindings/go/scip"
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/codenav/internal/lsifstore"
 	"github.com/sourcegraph/sourcegraph/enterprise/internal/codeintel/codenav/shared"
 	"github.com/sourcegraph/sourcegraph/internal/collections"
 	"github.com/sourcegraph/sourcegraph/internal/observation"
@@ -82,15 +83,7 @@ func (s *Service) NewGetPrototypes(
 //
 //
 
-type extractPrototypeLocationsFromPositionFunc func(
-	ctx context.Context,
-	bundleID int,
-	path string,
-	line int,
-	character int,
-	limit int,
-	offset int,
-) ([]shared.Location, int, []string, error)
+type extractPrototypeLocationsFromPositionFunc func(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error)
 
 func (s *Service) gatherLocations(
 	ctx context.Context,
@@ -278,18 +271,27 @@ func (s *Service) gatherLocalLocations(
 		// Gather response locations directly from the document containing the
 		// target position. This may also return relevant symbol names that we
 		// collect for a remote search.
-		locations, totalCount, symbolNames, err := extractPrototypeLocationsFromPosition(
+		locations, symbolNames, err := extractPrototypeLocationsFromPosition(
 			ctx,
-			visibleUpload.Upload.ID,
-			visibleUpload.TargetPathWithoutRoot,
-			visibleUpload.TargetPosition.Line,
-			visibleUpload.TargetPosition.Character,
-			limit-len(allLocations), // remaining space in the page
-			cursor.LocalLocationOffset,
+			lsifstore.LocationKey{
+				UploadID:  visibleUpload.Upload.ID,
+				Path:      visibleUpload.TargetPathWithoutRoot,
+				Line:      visibleUpload.TargetPosition.Line,
+				Character: visibleUpload.TargetPosition.Character,
+			},
 		)
 		if err != nil {
 			return nil, Cursor{}, err
 		}
+
+		// remaining space in the page
+		pageLimit := limit - len(allLocations)
+
+		// do pagination on this level instead of in lsifstore; we bring back the
+		// raw SCIP document payload anyway, so there's no reason to hide behind
+		// the API that it's doing that amount of work.
+		totalCount := len(locations)
+		locations = pageSlice(locations, pageLimit, cursor.LocalLocationOffset)
 
 		// adjust cursor offset for next page
 		cursor.LocalLocationOffset += len(locations)
@@ -528,6 +530,20 @@ func symbolsToMonikers(symbolNames []string) ([]precise.QualifiedMonikerData, er
 	}
 
 	return monikers, nil
+}
+
+func pageSlice[T any](s []T, limit, offset int) []T {
+	if offset < len(s) {
+		s = s[offset:]
+	} else {
+		s = []T{}
+	}
+
+	if len(s) > limit {
+		s = s[:limit]
+	}
+
+	return s
 }
 
 func compareStrings(a, b string) bool {

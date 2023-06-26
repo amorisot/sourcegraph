@@ -77,6 +77,11 @@ type AdjustedCodeIntelligenceRange struct {
 	HoverText       string
 }
 
+// Cursor is a struct that holds the state necessary to resume a locations query from a second or
+// subsequent request. This struct is used internally as a request-specific context object that is
+// mutated as the locations request is fulfilled. This struct is serialized to JSON then base64
+// encoded to make an opaque string that is handed to a future request to get the remainder of the
+// result set.
 type Cursor struct {
 	Phase                string                `json:"k0"` // ""/"local", "remote", or "done"
 	VisibleUploads       []CursorVisibleUpload `json:"k1"` // root uploads covering a particular code location

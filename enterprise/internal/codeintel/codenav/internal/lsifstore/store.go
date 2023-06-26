@@ -36,10 +36,17 @@ type LsifStore interface {
 	SCIPDocument(ctx context.Context, id int, path string) (_ *scip.Document, err error)
 
 	// Extraction methods
-	ExtractDefinitionLocationsFromPosition(ctx context.Context, uploadID int, path string, line, character, limit, offset int) ([]shared.Location, int, []string, error)
-	ExtractReferenceLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error)
-	ExtractImplementationLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error)
-	ExtractPrototypeLocationsFromPosition(ctx context.Context, bundleID int, path string, line, character, limit, offset int) (_ []shared.Location, _ int, _ []string, err error)
+	ExtractDefinitionLocationsFromPosition(ctx context.Context, locationKey LocationKey) ([]shared.Location, []string, error)
+	ExtractReferenceLocationsFromPosition(ctx context.Context, locationKey LocationKey) ([]shared.Location, []string, error)
+	ExtractImplementationLocationsFromPosition(ctx context.Context, locationKey LocationKey) ([]shared.Location, []string, error)
+	ExtractPrototypeLocationsFromPosition(ctx context.Context, locationKey LocationKey) ([]shared.Location, []string, error)
+}
+
+type LocationKey struct {
+	UploadID  int
+	Path      string
+	Line      int
+	Character int
 }
 
 type store struct {
