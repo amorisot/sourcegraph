@@ -95,6 +95,43 @@ type Cursor struct {
 	RemoteLocationOffset int                   `json:"k9"` // offset within locations of the current upload batch
 }
 
+func (c Cursor) BumpLocalLocationOffset(n, totalCount int) Cursor {
+	c.LocalLocationOffset += n
+	if c.LocalLocationOffset >= totalCount {
+		// We've consumed this upload completely. Skip it the next time we find
+		// ourselves in this loop, and ensure that we start with a zero offset on
+		// the next upload we process (if any).
+		c.LocalUploadOffset++
+		c.LocalLocationOffset = 0
+	}
+
+	return c
+}
+
+func (c Cursor) BumpRemoteUploadOffset(n, totalCount int) Cursor {
+	c.RemoteUploadOffset += n
+	if c.RemoteUploadOffset >= totalCount {
+		// We've consumed all upload batches
+		c.RemoteUploadOffset = -1
+	}
+
+	return c
+}
+
+func (c Cursor) BumpRemoteLocationOffset(n, totalCount int) Cursor {
+	c.RemoteLocationOffset += n
+	if c.RemoteLocationOffset >= totalCount {
+		// We've consumed the locations for this set of uploads. Reset this slice value in the
+		// cursor so that the next call to this function will query the new set of uploads to
+		// search in while resolving the next page. We also ensure we start on a zero offset
+		// for the next page of results for a fresh set of uploads (if any).
+		c.UploadIDs = nil
+		c.RemoteLocationOffset = 0
+	}
+
+	return c
+}
+
 type CursorVisibleUpload struct {
 	DumpID                int             `json:"k0"`
 	TargetPath            string          `json:"k1"`

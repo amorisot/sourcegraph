@@ -303,14 +303,7 @@ func (s *Service) gatherLocalLocations(
 		locations = pageSlice(locations, pageLimit, cursor.LocalLocationOffset)
 
 		// adjust cursor offset for next page
-		cursor.LocalLocationOffset += len(locations)
-		if cursor.LocalLocationOffset >= totalCount {
-			// We've consumed this upload completely. Skip it the next time we find
-			// ourselves in this loop, and ensure that we start with a zero offset on
-			// the next upload we process (if any).
-			cursor.LocalUploadOffset++
-			cursor.LocalLocationOffset = 0
-		}
+		cursor = cursor.BumpLocalLocationOffset(len(locations), totalCount)
 
 		// consume locations
 		if len(locations) > 0 {
@@ -416,15 +409,7 @@ func (s *Service) gatherRemoteLocations(
 	}
 
 	// adjust cursor offset for next page
-	cursor.RemoteLocationOffset += len(locations)
-	if cursor.RemoteLocationOffset >= totalCount {
-		// We've consumed the locations for this set of uploads. Reset this slice value in the
-		// cursor so that the next call to this function will query the new set of uploads to
-		// search in while resolving the next page. We also ensure we start on a zero offset
-		// for the next page of results for a fresh set of uploads (if any).
-		cursor.UploadIDs = nil
-		cursor.RemoteLocationOffset = 0
-	}
+	cursor = cursor.BumpRemoteLocationOffset(len(locations), totalCount)
 
 	// Adjust locations back to target commit
 	adjustedLocations, err := s.getUploadLocations(ctx, args, requestState, locations, false)
@@ -494,11 +479,7 @@ func (s *Service) prepareCandidateUploads(
 		cursor.UploadIDs = uploadIDs
 
 		// adjust cursor offset for next page
-		cursor.RemoteUploadOffset += len(uploadIDs)
-		if cursor.RemoteUploadOffset >= totalCount {
-			// We've consumed all upload batches
-			cursor.RemoteUploadOffset = -1
-		}
+		cursor = cursor.BumpRemoteUploadOffset(len(uploadIDs), totalCount)
 	}
 
 	// Hydrate upload records into the request state data loader. This must be called prior
