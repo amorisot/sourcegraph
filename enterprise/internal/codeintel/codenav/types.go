@@ -83,17 +83,26 @@ type AdjustedCodeIntelligenceRange struct {
 // encoded to make an opaque string that is handed to a future request to get the remainder of the
 // result set.
 type Cursor struct {
-	Phase                string                `json:"k0"` // ""/"local", "remote", or "done"
-	VisibleUploads       []CursorVisibleUpload `json:"k1"` // root uploads covering a particular code location
-	LocalUploadOffset    int                   `json:"k2"` // number of consumed visible uploads
-	LocalLocationOffset  int                   `json:"k3"` // offset within locations of VisibleUploads[LocalUploadOffset:]
-	SymbolNames          []string              `json:"k4"` // symbol names extracted from visible uploads
-	SkipPathsByUploadID  map[int]string        `json:"k5"` // paths to skip for particular uploads in the remote phase
-	DefinitionIDs        []int                 `json:"k6"` // identifiers of uploads defining relevant symbol names
-	UploadIDs            []int                 `json:"k7"` // current batch of uploads in which to search
-	RemoteUploadOffset   int                   `json:"k8"` // number of searched (to completion) uploads
-	RemoteLocationOffset int                   `json:"k9"` // offset within locations of the current upload batch
+	Phase                string                `json:"a"` // ""/"local", "remote", or "done"
+	VisibleUploads       []CursorVisibleUpload `json:"b"` // root uploads covering a particular code location
+	LocalUploadOffset    int                   `json:"c"` // number of consumed visible uploads
+	LocalLocationOffset  int                   `json:"d"` // offset within locations of VisibleUploads[LocalUploadOffset:]
+	SymbolNames          []string              `json:"e"` // symbol names extracted from visible uploads
+	SkipPathsByUploadID  map[int]string        `json:"f"` // paths to skip for particular uploads in the remote phase
+	DefinitionIDs        []int                 `json:"g"` // identifiers of uploads defining relevant symbol names
+	UploadIDs            []int                 `json:"h"` // current batch of uploads in which to search
+	RemoteUploadOffset   int                   `json:"i"` // number of searched (to completion) uploads
+	RemoteLocationOffset int                   `json:"j"` // offset within locations of the current upload batch
 }
+
+type CursorVisibleUpload struct {
+	DumpID                int             `json:"k"`
+	TargetPath            string          `json:"l"`
+	TargetPosition        shared.Position `json:"m"`
+	TargetPathWithoutRoot string          `json:"n"`
+}
+
+var exhaustedCursor = Cursor{Phase: "done"}
 
 func (c Cursor) BumpLocalLocationOffset(n, totalCount int) Cursor {
 	c.LocalLocationOffset += n
@@ -131,15 +140,6 @@ func (c Cursor) BumpRemoteLocationOffset(n, totalCount int) Cursor {
 
 	return c
 }
-
-type CursorVisibleUpload struct {
-	DumpID                int             `json:"k0"`
-	TargetPath            string          `json:"k1"`
-	TargetPosition        shared.Position `json:"k2"`
-	TargetPathWithoutRoot string          `json:"k3"`
-}
-
-var exhaustedCursor = Cursor{Phase: "done"}
 
 // referencesCursor stores (enough of) the state of a previous References request used to
 // calculate the offset into the result set to be returned by the current request.
