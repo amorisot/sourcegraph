@@ -23,6 +23,26 @@ const (
 	testSCIPUploadID = 2408562
 )
 
+func TextExtractDefinitionLocationsFromPosition(t *testing.T) {
+	// TODO
+}
+
+func TestExtractReferenceLocationsFromPosition(t *testing.T) {
+	// TODO
+}
+
+func TestExtractImplementationLocationsFromPosition(t *testing.T) {
+	// TODO
+}
+
+func TestExtractPrototypeLocationsFromPosition(t *testing.T) {
+	// TODO
+}
+
+func TestGetMinimalBulkMonikerLocations(t *testing.T) {
+	// TODO
+}
+
 func TestDatabaseDefinitions(t *testing.T) {
 	store := populateTestStore(t)
 
