@@ -83,23 +83,34 @@ type AdjustedCodeIntelligenceRange struct {
 // encoded to make an opaque string that is handed to a future request to get the remainder of the
 // result set.
 type Cursor struct {
-	Phase                string                `json:"a"` // ""/"local", "remote", or "done"
-	VisibleUploads       []CursorVisibleUpload `json:"b"` // root uploads covering a particular code location
-	LocalUploadOffset    int                   `json:"c"` // number of consumed visible uploads
-	LocalLocationOffset  int                   `json:"d"` // offset within locations of VisibleUploads[LocalUploadOffset:]
-	SymbolNames          []string              `json:"e"` // symbol names extracted from visible uploads
-	SkipPathsByUploadID  map[int]string        `json:"f"` // paths to skip for particular uploads in the remote phase
-	DefinitionIDs        []int                 `json:"g"` // identifiers of uploads defining relevant symbol names
-	UploadIDs            []int                 `json:"h"` // current batch of uploads in which to search
-	RemoteUploadOffset   int                   `json:"i"` // number of searched (to completion) uploads
-	RemoteLocationOffset int                   `json:"j"` // offset within locations of the current upload batch
+	// the following fields...
+	// track the current phase and offset within phase
+
+	Phase                string `json:"p"`    // ""/"local", "remote", or "done"
+	LocalUploadOffset    int    `json:"l_uo"` // number of consumed visible uploads
+	LocalLocationOffset  int    `json:"l_lo"` // offset within locations of VisibleUploads[LocalUploadOffset:]
+	RemoteUploadOffset   int    `json:"r_uo"` // number of searched (to completion) uploads
+	RemoteLocationOffset int    `json:"r_lo"` // offset within locations of the current upload batch
+
+	// the following fields...
+	// track associated visible/definition uploads and current batch of referencing uploads
+
+	VisibleUploads []CursorVisibleUpload `json:"vus"` // root uploads covering a particular code location
+	DefinitionIDs  []int                 `json:"dus"` // identifiers of uploads defining relevant symbol names
+	UploadIDs      []int                 `json:"rus"` // current batch of uploads in which to search
+
+	// the following fields...
+	// are populated during the local phase, used in the remote phase
+
+	SymbolNames         []string       `json:"ss"` // symbol names extracted from visible uploads
+	SkipPathsByUploadID map[int]string `json:"pm"` // paths to skip for particular uploads in the remote phase
 }
 
 type CursorVisibleUpload struct {
-	DumpID                int             `json:"k"`
-	TargetPath            string          `json:"l"`
-	TargetPosition        shared.Position `json:"m"`
-	TargetPathWithoutRoot string          `json:"n"`
+	DumpID                int             `json:"id"`
+	TargetPath            string          `json:"path"`
+	TargetPathWithoutRoot string          `json:"path_no_root"` // TODO - can store these differently?
+	TargetPosition        shared.Position `json:"pos"`          // TODO - inline
 }
 
 var exhaustedCursor = Cursor{Phase: "done"}
