@@ -23,20 +23,95 @@ const (
 	testSCIPUploadID = 2408562
 )
 
-func TextExtractDefinitionLocationsFromPosition(t *testing.T) {
-	// TODO
+func TestExtractDefinitionLocationsFromPosition(t *testing.T) {
+	store := populateTestStore(t)
+
+	// `const lru = new LRU<string, V>(cacheOptions)`
+	//        ^^^
+	// -> `    if (lru.has(key)) {`
+	//             ^^^
+	// -> `        return lru.get(key)!`
+	//                    ^^^
+	// -> `    lru.set(key, value)`
+	//         ^^^
+
+	scipDefinitionLocations := []shared.Location{
+		{
+			DumpID: testSCIPUploadID,
+			Path:   "template/src/lsif/util.ts",
+			Range:  newRange(7, 10, 7, 13),
+		},
+	}
+
+	testCases := []struct {
+		key                 LocationKey
+		expectedLocations   []shared.Location
+		expectedSymbolNames []string
+	}{
+		{LocationKey{testSCIPUploadID, "template/src/lsif/util.ts", 7, 12}, scipDefinitionLocations, nil},
+		{LocationKey{testSCIPUploadID, "template/src/lsif/util.ts", 10, 13}, scipDefinitionLocations, nil},
+		{LocationKey{testSCIPUploadID, "template/src/lsif/util.ts", 12, 19}, scipDefinitionLocations, nil},
+		{LocationKey{testSCIPUploadID, "template/src/lsif/util.ts", 15, 10}, scipDefinitionLocations, nil},
+	}
+
+	for i, testCase := range testCases {
+		t.Run(fmt.Sprintf("i=%d", i), func(t *testing.T) {
+			if locations, symbolNames, err := store.ExtractDefinitionLocationsFromPosition(context.Background(), testCase.key); err != nil {
+				t.Fatalf("unexpected error %s", err)
+			} else {
+				if diff := cmp.Diff(testCase.expectedLocations, locations); diff != "" {
+					t.Errorf("unexpected locations (-want +got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff(testCase.expectedSymbolNames, symbolNames); diff != "" {
+					t.Errorf("unexpected symbol names (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
 }
 
 func TestExtractReferenceLocationsFromPosition(t *testing.T) {
-	// TODO
-}
+	store := populateTestStore(t)
 
-func TestExtractImplementationLocationsFromPosition(t *testing.T) {
-	// TODO
-}
+	// `const lru = new LRU<string, V>(cacheOptions)`
+	//        ^^^
+	// -> `    if (lru.has(key)) {`
+	//             ^^^
+	// -> `        return lru.get(key)!`
+	//                    ^^^
+	// -> `    lru.set(key, value)`
+	//         ^^^
 
-func TestExtractPrototypeLocationsFromPosition(t *testing.T) {
-	// TODO
+	scipExpected := []shared.Location{
+		{DumpID: testSCIPUploadID, Path: "template/src/lsif/util.ts", Range: newRange(10, 12, 10, 15)},
+		{DumpID: testSCIPUploadID, Path: "template/src/lsif/util.ts", Range: newRange(12, 19, 12, 22)},
+		{DumpID: testSCIPUploadID, Path: "template/src/lsif/util.ts", Range: newRange(15, 8, 15, 11)},
+	}
+
+	testCases := []struct {
+		key                 LocationKey
+		expectedLocations   []shared.Location
+		expectedSymbolNames []string
+	}{
+		{LocationKey{testSCIPUploadID, "template/src/lsif/util.ts", 12, 21}, scipExpected, nil},
+	}
+
+	for i, testCase := range testCases {
+		t.Run(fmt.Sprintf("i=%d", i), func(t *testing.T) {
+			if locations, symbolNames, err := store.ExtractReferenceLocationsFromPosition(context.Background(), testCase.key); err != nil {
+				t.Fatalf("unexpected error %s", err)
+			} else {
+				if diff := cmp.Diff(testCase.expectedLocations, locations); diff != "" {
+					t.Errorf("unexpected locations (-want +got):\n%s", diff)
+				}
+
+				if diff := cmp.Diff(testCase.expectedSymbolNames, symbolNames); diff != "" {
+					t.Errorf("unexpected symbol names (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
 }
 
 func TestGetMinimalBulkMonikerLocations(t *testing.T) {
