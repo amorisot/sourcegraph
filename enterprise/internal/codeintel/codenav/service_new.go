@@ -355,14 +355,14 @@ func (s *Service) gatherRemoteLocations(
 		// not our turn
 		return nil, cursor, nil
 	}
-	if len(cursor.SymbolNames) == 0 {
-		// no symbol names from local phase
-		return nil, exhaustedCursor, nil
-	}
 
 	monikers, err := symbolsToMonikers(cursor.SymbolNames)
 	if err != nil {
 		return nil, Cursor{}, err
+	}
+	if len(monikers) == 0 {
+		// no symbol names from local phase
+		return nil, exhaustedCursor, nil
 	}
 
 	// Ensure we have a batch of upload ids over which to perform a symbol search, if such
@@ -504,6 +504,9 @@ func symbolsToMonikers(symbolNames []string) ([]precise.QualifiedMonikerData, er
 		parsedSymbol, err := scip.ParseSymbol(symbolName)
 		if err != nil {
 			return nil, err
+		}
+		if parsedSymbol.Package == nil {
+			continue
 		}
 
 		monikers = append(monikers, precise.QualifiedMonikerData{
