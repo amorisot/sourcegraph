@@ -74,7 +74,7 @@ func (s *Service) NewGetPrototypes(
 		ctx, args, requestState, cursor,
 
 		s.operations.getPrototypes, // operation
-		"definitions",              // N.B.: TODO
+		"definitions",              // N.B.: we're looking for definitions of interfaces
 		false,                      // includeReferencingIndexes
 		LocationExtractorFunc(s.lsifstore.ExtractPrototypeLocationsFromPosition),
 	)
@@ -84,7 +84,12 @@ func (s *Service) NewGetPrototypes(
 //
 
 type LocationExtractor interface {
-	// TODO - document
+	// Extract converts a location key (a location within a particular index's text document) into a
+	// set of locations within _that specific document_ related to the symbol at that position, as well
+	// as the set of related symbol names that should be searched in other indexes for a complete result
+	// set.
+	//
+	// The relationship between symbols is implementation specific.
 	Extract(ctx context.Context, locationKey lsifstore.LocationKey) ([]shared.Location, []string, error)
 }
 
@@ -104,8 +109,7 @@ func (s *Service) gatherLocations(
 	includeReferencingIndexes bool,
 	extractor LocationExtractor,
 ) (allLocations []shared.UploadLocation, _ Cursor, err error) {
-	// TODO - update, add trace logs below
-	ctx, _, endObservation := observeResolver(ctx, &err, operation, serviceObserverThreshold, observation.Args{Attrs: []attribute.KeyValue{
+	ctx, trace, endObservation := observeResolver(ctx, &err, operation, serviceObserverThreshold, observation.Args{Attrs: []attribute.KeyValue{
 		attribute.Int("repositoryID", args.RepositoryID),
 		attribute.String("commit", args.Commit),
 		attribute.String("path", args.Path),
@@ -137,6 +141,12 @@ func (s *Service) gatherLocations(
 		return nil, Cursor{}, err
 	}
 
+	var visibleUploadIDs []int
+	for _, upload := range visibleUploads {
+		visibleUploadIDs = append(visibleUploadIDs, upload.Upload.ID)
+	}
+	trace.AddEvent("VisibleUploads", attribute.IntSlice("visibleUploadIDs", visibleUploadIDs))
+
 	// The following loop calls local and remote location resolution phases in alternation. As
 	// each phase controls whether or not it should execute, this is safe.
 	//
@@ -151,6 +161,8 @@ func (s *Service) gatherLocations(
 outer:
 	for cursor.Phase != "done" {
 		for _, gatherLocations := range []gatherLocationsFunc{s.gatherLocalLocations, s.gatherRemoteLocations} {
+			trace.AddEvent("Gather", attribute.String("phase", cursor.Phase), attribute.Int("numLocationsGathered", len(allLocations)))
+
 			if len(allLocations) >= args.Limit {
 				// we've filled our page, exit with current results
 				break outer
@@ -161,6 +173,7 @@ outer:
 			// N.B.: cursor is purposefully re-assigned here
 			locations, cursor, err = gatherLocations(
 				ctx,
+				trace,
 				args,
 				requestState,
 				cursor,
@@ -226,6 +239,7 @@ func (s *Service) newGetVisibleUploadsFromCursor(
 
 type gatherLocationsFunc func(
 	ctx context.Context,
+	trace observation.TraceLogger,
 	args RequestArgs,
 	requestState RequestState,
 	cursor Cursor,
@@ -240,6 +254,7 @@ const skipPrefix = "lsif ."
 
 func (s *Service) gatherLocalLocations(
 	ctx context.Context,
+	trace observation.TraceLogger,
 	args RequestArgs,
 	requestState RequestState,
 	cursor Cursor,
@@ -259,6 +274,12 @@ func (s *Service) gatherLocalLocations(
 		return nil, cursor, nil
 	}
 	unconsumedVisibleUploads := visibleUploads[cursor.LocalUploadOffset:]
+
+	var unconsumedVisibleUploadIDs []int
+	for _, u := range unconsumedVisibleUploads {
+		unconsumedVisibleUploadIDs = append(unconsumedVisibleUploadIDs, u.Upload.ID)
+	}
+	trace.AddEvent("GatherLocalLocations", attribute.IntSlice("unconsumedVisibleUploadIDs", unconsumedVisibleUploadIDs))
 
 	// Create local copy of mutable cursor scope and normalize it before use.
 	// We will re-assign these values back to the response cursor before the
@@ -292,6 +313,7 @@ func (s *Service) gatherLocalLocations(
 		if err != nil {
 			return nil, Cursor{}, err
 		}
+		trace.AddEvent("ReadDocument", attribute.Int("numLocations", len(locations)), attribute.Int("numSymbolNames", len(symbolNames)))
 
 		// remaining space in the page
 		pageLimit := limit - len(allLocations)
@@ -342,6 +364,7 @@ func (s *Service) gatherLocalLocations(
 
 func (s *Service) gatherRemoteLocations(
 	ctx context.Context,
+	trace observation.TraceLogger,
 	args RequestArgs,
 	requestState RequestState,
 	cursor Cursor,
@@ -355,6 +378,7 @@ func (s *Service) gatherRemoteLocations(
 		// not our turn
 		return nil, cursor, nil
 	}
+	trace.AddEvent("GatherRemoteLocations", attribute.StringSlice("symbolNames", cursor.SymbolNames))
 
 	monikers, err := symbolsToMonikers(cursor.SymbolNames)
 	if err != nil {
@@ -372,6 +396,7 @@ func (s *Service) gatherRemoteLocations(
 	// N.B.: cursor is purposefully re-assigned here
 	cursor, err = s.prepareCandidateUploads(
 		ctx,
+		trace,
 		args,
 		requestState,
 		cursor,
@@ -387,6 +412,7 @@ func (s *Service) gatherRemoteLocations(
 	if len(cursor.UploadIDs) == 0 {
 		return nil, exhaustedCursor, nil
 	}
+	trace.AddEvent("RemoteSymbolSearch", attribute.IntSlice("uploadIDs", cursor.UploadIDs))
 
 	// Finally, query time!
 	// Fetch indexed ranges of the given symbols within the given uploads.
@@ -422,6 +448,7 @@ func (s *Service) gatherRemoteLocations(
 
 func (s *Service) prepareCandidateUploads(
 	ctx context.Context,
+	trace observation.TraceLogger,
 	args RequestArgs,
 	requestState RequestState,
 	cursor Cursor,
@@ -452,6 +479,7 @@ func (s *Service) prepareCandidateUploads(
 
 		cursor.UploadIDs = ids
 		cursor.DefinitionIDs = ids
+		trace.AddEvent("Loaded indexes with definitions of symbols", attribute.IntSlice("ids", ids))
 	}
 
 	if !includeReferencingIndexes {
@@ -476,7 +504,9 @@ func (s *Service) prepareCandidateUploads(
 		if err != nil {
 			return Cursor{}, err
 		}
+
 		cursor.UploadIDs = uploadIDs
+		trace.AddEvent("Loaded batch of indexes with references to symbols", attribute.IntSlice("ids", uploadIDs))
 
 		// adjust cursor offset for next page
 		cursor = cursor.BumpRemoteUploadOffset(len(uploadIDs), totalCount)
